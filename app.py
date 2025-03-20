@@ -16,6 +16,7 @@ stop_words = set(stopwords.words('english'))
 
 # Load NLP model
 nlp = spacy.load("en_core_web_sm")
+print("Model loaded successfully!")
 
 def clean_text(text):
     """Function to clean resume text by removing punctuation, numbers, and stopwords."""
@@ -49,7 +50,14 @@ uploaded_file = st.file_uploader("Upload CSV file containing resumes", type=["cs
 
 # Job Description Input
 job_description = st.text_area("Enter Job Description")
-
+if uploaded_file is not None:
+    try:
+        resume_data = pd.read_csv(uploaded_file)
+        st.write("File uploaded successfully!")
+    except Exception as e:
+        st.error(f"Error reading the file: {e}")
+else:
+    st.warning("Please upload a valid CSV file.")
 if uploaded_file and job_description:
     # Load Resume Data
     resume_data = pd.read_csv(uploaded_file)
