@@ -13,7 +13,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # Download resources
 nltk.download('stopwords')
-spacy.cli.download("en_core_web_sm")
 
 # Load NLP tools
 nlp = spacy.load("en_core_web_sm")
