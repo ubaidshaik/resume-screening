@@ -1,25 +1,42 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
+import re
+import string
 import nltk
 import spacy
-import string
-import re
+from PyPDF2 import PdfReader
+from docx import Document
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.neighbors import NearestNeighbors
-from nltk.corpus import stopwords
 
-# Download stopwords
+# Download resources
 nltk.download('stopwords')
-stop_words = set(stopwords.words('english'))
+spacy.cli.download("en_core_web_sm")
 
-# Load NLP model
+# Load NLP tools
 nlp = spacy.load("en_core_web_sm")
-print("Model loaded successfully!")
+stop_words = set(nltk.corpus.stopwords.words('english'))
 
+# Function to extract text from different file types
+def extract_text(file):
+    text = ""
+    if file.type == "application/pdf":
+        pdf_reader = PdfReader(file)
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+    elif file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":  # DOCX
+        doc = Document(file)
+        for para in doc.paragraphs:
+            text += para.text + "\n"
+    elif file.type == "text/csv":
+        df = pd.read_csv(file)
+        text = " ".join(df.astype(str).values.flatten())  # Convert CSV data into text
+    return text
+
+# Function to clean text
 def clean_text(text):
-    """Function to clean resume text by removing punctuation, numbers, and stopwords."""
     text = text.lower()
     text = re.sub(r'\d+', '', text)  # Remove numbers
     text = text.translate(str.maketrans("", "", string.punctuation))  # Remove punctuation
@@ -27,47 +44,44 @@ def clean_text(text):
     words = [word for word in words if word not in stop_words]
     return " ".join(words)
 
-def extract_features(resume_data, job_description):
-    """Extract TF-IDF features and compute similarity scores."""
+# Function to compute similarity
+def compute_similarity(resumes, job_description):
+    """Compute TF-IDF and cosine similarity between job description and resumes."""
     vectorizer = TfidfVectorizer()
-    all_texts = resume_data['Cleaned_Resume'].tolist() + [clean_text(job_description)]
-    tfidf_matrix = vectorizer.fit_transform(all_texts)
+    documents = resumes + [job_description]  # Combine all resumes with the job description
+    tfidf_matrix = vectorizer.fit_transform(documents)
 
-    job_vector = tfidf_matrix[-1]  # Last entry is the job description
-    resume_vectors = tfidf_matrix[:-1]  # All other entries are resumes
+    job_vector = tfidf_matrix[-1]  # Last element is the job description
+    resume_vectors = tfidf_matrix[:-1]  # All other elements are resumes
 
-    # Compute cosine similarity
-    similarity_scores = cosine_similarity(resume_vectors, job_vector)
-    resume_data['Similarity'] = similarity_scores.flatten()
+    similarities = cosine_similarity(resume_vectors, job_vector).flatten()
+    
+    ranked_resumes = sorted(zip(resumes, similarities), key=lambda x: x[1], reverse=True)
+    return ranked_resumes
 
-    return resume_data.sort_values(by='Similarity', ascending=False)
+# Streamlit App
+st.title("📄 Automated Resume Screening System")
 
-# Streamlit Web App
-st.title("Automated Resume Screening System")
-
-# Upload Resume Dataset
-uploaded_file = st.file_uploader("Upload CSV file containing resumes", type=["csv"])
+# File Upload Section
+uploaded_files = st.file_uploader("Upload resumes (PDF, DOCX, CSV)", type=["pdf", "docx", "csv"], accept_multiple_files=True)
 
 # Job Description Input
-job_description = st.text_area("Enter Job Description")
-if uploaded_file is not None:
-    try:
-        resume_data = pd.read_csv(uploaded_file)
-        st.write("File uploaded successfully!")
-    except Exception as e:
-        st.error(f"Error reading the file: {e}")
-else:
-    st.warning("Please upload a valid CSV file.")
-if uploaded_file and job_description:
-    # Load Resume Data
-    resume_data = pd.read_csv(uploaded_file)
+job_description = st.text_area("✍️ Enter Job Description")
 
-    # Preprocess Resumes
-    resume_data['Cleaned_Resume'] = resume_data['Resume'].apply(clean_text)
+if uploaded_files and job_description:
+    resumes = []
+    for file in uploaded_files:
+        extracted_text = extract_text(file)
+        cleaned_text = clean_text(extracted_text)
+        resumes.append(cleaned_text)
 
-    # Extract Features and Rank Resumes
-    ranked_resumes = extract_features(resume_data, job_description)
+    cleaned_job_description = clean_text(job_description)
 
-    # Display Results
-    st.subheader("Top 10 Matching Resumes")
-    st.write(ranked_resumes[['Resume', 'Similarity']].head(10))
+    # Compute Similarity and Rank Resumes
+    ranked_resumes = compute_similarity(resumes, cleaned_job_description)
+
+    # Display Top 10 Matching Resumes
+    st.subheader("🏆 Top 10 Matching Resumes")
+    for idx, (resume_text, similarity) in enumerate(ranked_resumes[:10], start=1):
+        st.write(f"**{idx}. Resume Similarity:** {similarity:.2f}")
+        st.text_area(f"Resume {idx} Preview", resume_text[:500], height=150)  # Show first 500 chars of resume
